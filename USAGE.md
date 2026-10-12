@@ -58,6 +58,7 @@ Things Claude does for you, not manual:
 | `test the forms on /contact` | intercepted form test with the sent fields |
 | `convert images to WebP` | runs the WebP batch |
 | `full screenshots at 479` | full-page screenshots for one breakpoint |
+| `show all stages` | full checklist incl. Before Starting (the table also has stage buttons) |
 | `write a shareable report` | `report.md` for the client or PM |
 
 ## Notes

@@ -52,6 +52,7 @@ const STAGE_SCOPE = {
   'client-qa': ['During Development', 'Before Internal QA', 'Before Client QA'],
   launch: ['During Development', 'Before Internal QA', 'Before Client QA', 'Before Launch'],
   live: ['During Development', 'Before Internal QA', 'Before Client QA', 'Before Launch'],
+  all: STAGES,
 };
 const SEV = ['critical', 'high', 'medium', 'low', 'info'];
 export const MCP_FIXABLE = new Set(['page-settings', 'cms', 'asset', 'element', 'style', 'custom-code']);
@@ -141,7 +142,8 @@ export async function render(reportDir, { stage } = {}) {
   });
 
   const inScope = STAGE_SCOPE[scopeStage] || STAGE_SCOPE['internal-qa'];
-  const visible = rows.filter((r) => inScope.includes(r.stage) && r.type !== 'process');
+  const showAll = scopeStage === 'all';
+  const visible = rows.filter((r) => inScope.includes(r.stage) && (showAll || r.type !== 'process'));
   const processCount = rows.filter((r) => inScope.includes(r.stage) && r.type === 'process').length + rows.filter((r) => r.stage === 'Before Starting').length;
   const counts = {
     blockers: all.filter((f) => ['critical', 'high'].includes(f.severity)).length,
@@ -154,8 +156,8 @@ export async function render(reportDir, { stage } = {}) {
   const meta = { site: data.site, env: data.env, stage: scopeStage, pages: data.pagesAudited, generated: data.generated };
 
   await fs.writeFile(path.join(reportDir, 'checklist.json'), JSON.stringify({ meta, counts, rows, manual: manualList.map(short) }, null, 2));
-  const md = renderMd(meta, counts, visible, processCount, manualList);
-  const html = renderHtml(meta, counts, visible, processCount, manualList);
+  const md = renderMd(meta, counts, visible, showAll ? 0 : processCount, manualList);
+  const html = renderHtml(meta, counts, rows, inScope, processCount, manualList);
   await fs.writeFile(path.join(reportDir, 'checklist.md'), md);
   await fs.writeFile(path.join(reportDir, 'checklist.html'), html);
   return { md, html, counts, rows };
@@ -176,7 +178,7 @@ function renderMd(meta, counts, rows, processCount, manualList) {
     }
     md += '\n';
   }
-  md += `${processCount} process items (planning, handover, transfer) are not auditable from the site.\n\n`;
+  if (processCount) md += `${processCount} process items (planning, handover, transfer) are not auditable from the site. Show them with \`--stage all\`.\n\n`;
   if (manualList.length) md += `**Needs manual action**\n\n${manualList.map((f) => `- ${short(f).replace(/</g, '&lt;').replace(/>/g, '&gt;')}`).join('\n')}\n\n`;
   md += `**Fixable via Webflow MCP: ${counts.fixable}** · Manual: ${counts.manual}\n`;
   return md;
@@ -184,7 +186,7 @@ function renderMd(meta, counts, rows, processCount, manualList) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function renderHtml(meta, counts, rows, processCount, manualList) {
+function renderHtml(meta, counts, rows, inScope, processCount, manualList) {
   const host = new URL(meta.site).host;
   const tone = (t) => (t === 'neutral' ? 'background:var(--surface-1);color:var(--text-secondary)' : `background:var(--bg-${t});color:var(--text-${t})`);
   const card = (label, value, color) => `<div style="background:var(--surface-1);border-radius:var(--radius);padding:12px"><div style="font-size:13px;color:var(--text-secondary)">${label}</div><div style="font-size:24px;font-weight:500${color ? `;color:var(--text-${color})` : ''}">${value}</div></div>`;
@@ -194,33 +196,62 @@ function renderHtml(meta, counts, rows, processCount, manualList) {
 .qa-fix{font-size:12px;color:var(--text-muted)}
 .qa-what{font-size:13px;color:var(--text-secondary);padding:0 0 10px 22px;line-height:1.6}
 .qa-stage{font-size:13px;color:var(--text-secondary);margin:1.25rem 0 4px;font-weight:500}
+.qa-filter{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px}
+.qa-filter button{font-size:12px;padding:4px 10px}
+.qa-filter button[aria-pressed="true"]{background:var(--bg-accent);color:var(--text-accent);border-color:var(--border-accent)}
 details summary{list-style:none}details summary::-webkit-details-marker{display:none}
 </style>
 <h2 class="sr-only">QA checklist for ${esc(host)}: ${counts.open} items open, ${counts.passed} passed, ${counts.fixable} issues fixable via Webflow MCP.</h2>
 <div style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">${esc(host)} · ${esc(meta.env)} · ${meta.pages} page(s)</div>
 <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 1rem">${card('Blockers', counts.blockers, counts.blockers ? 'danger' : null)}${card('Open items', counts.open)}${card('Fixable via MCP', counts.fixable)}${card('Manual', counts.manual)}</div>
+<div class="qa-filter" role="group" aria-label="Checklist stages"><button type="button" data-f="scope" aria-pressed="true">Current stage</button><button type="button" data-f="all" aria-pressed="false">All stages</button>${STAGES.map((st) => `<button type="button" data-f="${esc(st)}" aria-pressed="false">${esc(st)}</button>`).join('')}</div>
 `;
   for (const stg of STAGES) {
     const list = rows.filter((r) => r.stage === stg);
     if (!list.length) continue;
-    h += `<div class="qa-stage">${esc(stg)}</div>\n`;
+    const stageVisible = list.some((r) => inScope.includes(r.stage) && r.type !== 'process');
+    h += `<div class="qa-stage" data-stage="${esc(stg)}"${stageVisible ? '' : ' hidden'}>${esc(stg)}</div>\n`;
     for (const r of list) {
+      const inView = inScope.includes(r.stage) && r.type !== 'process';
       const s = STATUS[r.status];
       const chip = `${s.label}${r.status === 'open' ? ` · ${r.issues}` : ''}${r.worst && r.status === 'open' ? ` · ${r.worst}` : ''}`;
       const detail = r.what.length ? r.what : r.note ? [r.note] : [];
       const fix = r.fixShort;
-      h += `<details${r.worst === 'critical' ? ' open' : ''}><summary class="qa-row"><span>${detail.length ? '<i class="ti ti-chevron-down" style="font-size:14px" aria-hidden="true"></i> ' : '<span style="display:inline-block;width:18px"></span>'}${esc(r.item)}</span><span class="qa-chip" style="${tone(s.tone)}">${esc(chip)}</span><span class="qa-fix">${esc(fix)}</span></summary>${detail.length ? `<div class="qa-what">${detail.map(esc).join('<br>')}${r.fix.length ? `<br><span style="color:var(--text-muted)">${esc(r.fix.join(', '))}</span>` : ''}</div>` : ''}</details>\n`;
+      h += `<details class="qa-item" data-stage="${esc(r.stage)}" data-scope="${inView ? 1 : 0}" data-proc="${r.type === 'process' ? 1 : 0}"${inView ? '' : ' hidden'}${r.worst === 'critical' ? ' open' : ''}><summary class="qa-row"><span>${detail.length ? '<i class="ti ti-chevron-down" style="font-size:14px" aria-hidden="true"></i> ' : '<span style="display:inline-block;width:18px"></span>'}${esc(r.item)}</span><span class="qa-chip" style="${tone(s.tone)}">${esc(chip)}</span><span class="qa-fix">${esc(fix)}</span></summary>${detail.length ? `<div class="qa-what">${detail.map(esc).join('<br>')}${r.fix.length ? `<br><span style="color:var(--text-muted)">${esc(r.fix.join(', '))}</span>` : ''}</div>` : ''}</details>\n`;
     }
   }
-  h += `<div style="font-size:13px;color:var(--text-muted);margin:12px 0 0">${processCount} process items (planning, handover, transfer) aren't auditable from the site</div>\n`;
+  h += `<div id="qa-proc-note" style="font-size:13px;color:var(--text-muted);margin:12px 0 0">${processCount} process items (planning, handover, transfer) aren't auditable from the site — see All stages</div>\n`;
   if (manualList.length) h += `<div class="qa-stage">Needs manual action</div><div class="qa-what" style="padding-left:0">${manualList.map((f) => esc(short(f))).join('<br>')}</div>\n`;
   h += `<div style="display:flex;gap:8px;margin:1rem 0 0;flex-wrap:wrap"><button onclick="sendPrompt('Fix the ${counts.fixable} open items via Webflow MCP, batch by batch')">Fix ${counts.fixable} items via Webflow MCP ↗</button><button onclick="sendPrompt('Let me pick which items to fix')">Pick items ↗</button></div>\n`;
+  h += `<script>
+(function () {
+  var items = document.querySelectorAll('.qa-item');
+  var heads = document.querySelectorAll('.qa-stage[data-stage]');
+  var note = document.getElementById('qa-proc-note');
+  function apply(f) {
+    var shown = {};
+    items.forEach(function (el) {
+      var on = f === 'all' ? true : f === 'scope' ? el.dataset.scope === '1' : el.dataset.stage === f;
+      el.hidden = !on;
+      if (on) shown[el.dataset.stage] = true;
+    });
+    heads.forEach(function (h) { h.hidden = !shown[h.dataset.stage]; });
+    if (note) note.hidden = f !== 'scope';
+  }
+  document.querySelectorAll('.qa-filter button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.qa-filter button').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      apply(b.dataset.f);
+    });
+  });
+})();
+</script>\n`;
   return h;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dir = process.argv[2];
-  if (!dir) { console.error('Usage: node scripts/render.mjs reports/<host>/<timestamp> [--stage internal-qa|client-qa|launch|live]'); process.exit(2); }
+  if (!dir) { console.error('Usage: node scripts/render.mjs reports/<host>/<timestamp> [--stage internal-qa|client-qa|launch|live|all]'); process.exit(2); }
   const i = process.argv.indexOf('--stage');
   const { md } = await render(dir, { stage: i > -1 ? process.argv[i + 1] : undefined });
   console.log(md);

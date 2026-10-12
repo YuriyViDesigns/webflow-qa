@@ -96,10 +96,12 @@ Write results to `reports/<host>/<timestamp>/review.json` — this exact schema,
 ## Phase 3 — Show the checklist (fixed format)
 
 ```bash
-node scripts/render.mjs reports/<host>/<timestamp> --stage internal-qa|client-qa|launch|live
+node scripts/render.mjs reports/<host>/<timestamp> --stage internal-qa|client-qa|launch|live|all
 ```
 
 It writes `checklist.md` and `checklist.html` from findings + `forms/*.json` + `review.json`. **Never build or restyle the table yourself.**
+
+The HTML has stage filter buttons (Current stage · All stages · each stage), so one render covers everything. For the markdown fallback, when the user asks for all stages or one specific stage, rerender with `--stage all` and output it verbatim.
 
 1. If `show_widget` is available: Read `checklist.html` and pass its content to `show_widget` **verbatim** (title `qa_checklist_<host>`). Don't edit, shorten, translate or add rows.
 2. Otherwise: output `checklist.md` **verbatim**.
