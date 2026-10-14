@@ -6,7 +6,7 @@ Claude Code toolkit that audits a Webflow site against the build checklist, show
 
 1. Get access to this repo and clone it:
    ```bash
-   git clone https://github.com/kenblack322/webflow-qa.git
+   git clone https://github.com/YuriyViDesigns/webflow-qa.git
    ```
 2. Open the folder in **Claude Code** (desktop app recommended — the checklist renders as an interactive table there).
 3. Say anything. Claude will:
